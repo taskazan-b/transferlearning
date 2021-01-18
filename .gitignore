@@ -4,3 +4,15 @@
 code/.DS_Store
 .DS_Store
 *.pyc
+**/logs
+**/data
+*.7z
+*.dmg
+*.gz
+*.iso
+*.jar
+*.rar
+*.tar
+*.zip
+*.csv
+*.pth

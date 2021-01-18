@@ -1,5 +1,6 @@
 import torch
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+gpu_id = 3
+DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
 
 def CORAL(source, target):
     d = source.size(1)

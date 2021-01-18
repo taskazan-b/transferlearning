@@ -5,27 +5,46 @@ import data_loader
 import models
 import utils
 import numpy as np
+from return_dataset import return_dataset
 
-DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+gpu_id = 3
+DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
+
 log = []
 
 # Command setting
 parser = argparse.ArgumentParser(description='DDC_DCORAL')
 parser.add_argument('--model', type=str, default='resnet50')
 parser.add_argument('--batchsize', type=int, default=32)
-parser.add_argument('--src', type=str, default='amazon')
-parser.add_argument('--tar', type=str, default='webcam')
-parser.add_argument('--n_class', type=int, default=31)
+parser.add_argument('--src', type=str, default='webcam')
+parser.add_argument('--tar', type=str, default='amazon')
 parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--n_epoch', type=int, default=100)
+parser.add_argument('--n_epoch', type=int, default=5) #100
 parser.add_argument('--momentum', type=float, default=0.9)
 parser.add_argument('--decay', type=float, default=5e-4)
-parser.add_argument('--data', type=str, default='/home/jindwang/mine/data/office31')
+parser.add_argument('--data', type=str, default='/home/begum/SSDA_MME/data/')
+parser.add_argument('--dataset', type=str, default='office',
+                    choices=['multi', 'office', 'office_home'],
+                    help='the name of dataset')
+# parser.add_argument('--data', type=str, default='/home/begum/SSDA_MME/data/office/')
 parser.add_argument('--early_stop', type=int, default=20)
 parser.add_argument('--lamb', type=float, default=10)
 parser.add_argument('--trans_loss', type=str, default='mmd')
+parser.add_argument('--checkpath', type=str, default='./logs/models')
+parser.add_argument('--num', type=int, default=3,
+                    help='number of labeled examples in the target')
 args = parser.parse_args()
 
+if not os.path.exists(args.checkpath)):
+    os.makedirs(args.checkpath)
+
+def save_mdl(model,pth, epoch):
+    torch.save(model.state_dict(),os.path.join(args.checkpath,
+                                        "mdl_{}_{}_"
+                                        "to_{}_epoch_{}.pth".
+                                        format(args.trans_loss, args.src,
+                                               args.tar, epoch)))
+    
 def test(model, target_test_loader):
     model.eval()
     test_loss = utils.AverageMeter()
@@ -78,7 +97,9 @@ def train(source_loader, target_train_loader, target_test_loader, model, optimiz
         acc = test(model, target_test_loader)
         log.append([train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg])
         np_log = np.array(log, dtype=float)
-        np.savetxt('train_log.csv', np_log, delimiter=',', fmt='%.6f')
+        np.savetxt('logs/train_log.csv', np_log, delimiter=',', fmt='%.6f',
+                header='Dataset %s Source %s Target %s Labeled num perclass %s Network %s' %
+                (args.dataset, args.src, args.tar, args.num, args.model))
         print('Epoch: [{:2d}/{}], cls_loss: {:.4f}, transfer_loss: {:.4f}, total_Loss: {:.4f}, acc: {:.4f}'.format(
                     e, args.n_epoch, train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg, acc))
         if best_acc < acc:
@@ -90,8 +111,8 @@ def train(source_loader, target_train_loader, target_test_loader, model, optimiz
     
 
 def load_data(src, tar, root_dir):
-    folder_src = os.path.join(root_dir, src)
-    folder_tar = os.path.join(root_dir, tar)
+    folder_src = os.path.join(root_dir, src)+'/images/'
+    folder_tar = os.path.join(root_dir, tar)+'/images/'
     source_loader = data_loader.load_data(
         folder_src, args.batchsize, True, {'num_workers': 4})
     target_train_loader = data_loader.load_data(
@@ -104,16 +125,16 @@ def load_data(src, tar, root_dir):
 if __name__ == '__main__':
     torch.manual_seed(0)
 
-    source_name = "amazon"
-    target_name = "webcam"
+    print('Src: %s, Tar: %s' % (args.src, args.tar))
 
-    print('Src: %s, Tar: %s' % (source_name, target_name))
+    source_loader, target_labeled_loader, target_unl_loader, target_val_loader, \
+    target_test_loader, class_list = return_dataset(args)
 
-    source_loader, target_train_loader, target_test_loader = load_data(
-        source_name, target_name, args.data)
+    # source_loader, target_train_loader, target_test_loader = load_data(
+    #     source_name, target_name, args.data)
 
     model = models.Transfer_Net(
-        args.n_class, transfer_loss=args.trans_loss, base_net=args.model).to(DEVICE)
+        len(class_list), transfer_loss=args.trans_loss, base_net=args.model).to(DEVICE)
     optimizer = torch.optim.SGD([
         {'params': model.base_network.parameters()},
         {'params': model.bottleneck_layer.parameters(), 'lr': 10 * args.lr},
