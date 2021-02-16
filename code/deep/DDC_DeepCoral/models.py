@@ -5,8 +5,9 @@ import backbone
 
 
 class Transfer_Net(nn.Module):
-    def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_bottleneck=True, bottleneck_width=256, width=1024):
+    def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
         super(Transfer_Net, self).__init__()
+        self.gid = gpu_id
         self.base_network = backbone.network_dict[base_net]()
         self.use_bottleneck = use_bottleneck
         self.transfer_loss = transfer_loss
@@ -53,7 +54,7 @@ class Transfer_Net(nn.Module):
             mmd_loss = mmd.MMD_loss()
             loss = mmd_loss(X, Y)
         elif adapt_loss == 'coral':
-            loss = CORAL(X, Y)
+            loss = CORAL(X, Y, gpu_id=self.gid)
         else:
             loss = 0
         return loss

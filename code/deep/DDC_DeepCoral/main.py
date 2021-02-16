@@ -5,9 +5,9 @@ import data_loader
 import models
 import utils
 import numpy as np
-from return_dataset import return_dataset
+from return_dataset import return_SSDA
 
-gpu_id = 3
+gpu_id = 1
 DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
 
 log = []
@@ -19,7 +19,7 @@ parser.add_argument('--batchsize', type=int, default=32)
 parser.add_argument('--src', type=str, default='webcam')
 parser.add_argument('--tar', type=str, default='amazon')
 parser.add_argument('--lr', type=float, default=1e-3)
-parser.add_argument('--n_epoch', type=int, default=5) #100
+parser.add_argument('--n_epoch', type=int, default=100) #100
 parser.add_argument('--momentum', type=float, default=0.9)
 parser.add_argument('--decay', type=float, default=5e-4)
 parser.add_argument('--data', type=str, default='/home/begum/SSDA_MME/data/')
@@ -29,13 +29,13 @@ parser.add_argument('--dataset', type=str, default='office',
 # parser.add_argument('--data', type=str, default='/home/begum/SSDA_MME/data/office/')
 parser.add_argument('--early_stop', type=int, default=20)
 parser.add_argument('--lamb', type=float, default=10)
-parser.add_argument('--trans_loss', type=str, default='mmd')
+parser.add_argument('--trans_loss', type=str, default='coral')
 parser.add_argument('--checkpath', type=str, default='./logs/models')
 parser.add_argument('--num', type=int, default=3,
                     help='number of labeled examples in the target')
 args = parser.parse_args()
 
-if not os.path.exists(args.checkpath)):
+if not os.path.exists(args.checkpath):
     os.makedirs(args.checkpath)
 
 def save_mdl(model,pth, epoch):
@@ -63,7 +63,7 @@ def test(model, target_test_loader):
     return acc
 
 
-def train(source_loader, target_train_loader, target_test_loader, model, optimizer):
+def train(source_loader, target_loader, target_train_loader, target_test_loader, model, optimizer):
     len_source_loader = len(source_loader)
     len_target_loader = len(target_train_loader)
     best_acc = 0
@@ -127,19 +127,15 @@ if __name__ == '__main__':
 
     print('Src: %s, Tar: %s' % (args.src, args.tar))
 
-    source_loader, target_labeled_loader, target_unl_loader, target_val_loader, \
-    target_test_loader, class_list = return_dataset(args)
-
-    # source_loader, target_train_loader, target_test_loader = load_data(
-    #     source_name, target_name, args.data)
+    source_loader, target_loader, target_test_loader, target_train_loader, class_list = return_SSDA(args)
 
     model = models.Transfer_Net(
-        len(class_list), transfer_loss=args.trans_loss, base_net=args.model).to(DEVICE)
+        len(class_list), transfer_loss=args.trans_loss, base_net=args.model, gpu_id = gpu_id).to(DEVICE)
     optimizer = torch.optim.SGD([
         {'params': model.base_network.parameters()},
         {'params': model.bottleneck_layer.parameters(), 'lr': 10 * args.lr},
         {'params': model.classifier_layer.parameters(), 'lr': 10 * args.lr},
     ], lr=args.lr, momentum=args.momentum, weight_decay=args.decay)
 
-    train(source_loader, target_train_loader,
+    train(source_loader, target_loader, target_train_loader,
           target_test_loader, model, optimizer)
