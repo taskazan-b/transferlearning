@@ -2,7 +2,7 @@ import torch.nn as nn
 from Coral import CORAL
 import mmd
 import backbone
-
+import torch
 
 class Transfer_Net(nn.Module):
     def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
@@ -12,7 +12,7 @@ class Transfer_Net(nn.Module):
         self.use_bottleneck = use_bottleneck
         self.transfer_loss = transfer_loss
         bottleneck_list = [nn.Linear(self.base_network.output_num(
-        ), bottleneck_width), nn.BatchNorm1d(bottleneck_width), nn.ReLU(), nn.Dropout(0.5)]
+        ), bottleneck_width), nn.BatchNorm1d(bottleneck_width), nn.LeakyReLU(), nn.Dropout(0.5)] #nn.ReLU()
         self.bottleneck_layer = nn.Sequential(*bottleneck_list)
         classifier_layer_list = [nn.Linear(self.base_network.output_num(), width), nn.ReLU(), nn.Dropout(0.5),
                                  nn.Linear(width, num_class)]
@@ -24,15 +24,17 @@ class Transfer_Net(nn.Module):
             self.classifier_layer[i * 3].weight.data.normal_(0, 0.01)
             self.classifier_layer[i * 3].bias.data.fill_(0.0)
 
-    def forward(self, source, target):
+    def forward(self, source, target, target_train):
         source = self.base_network(source)
         target = self.base_network(target)
+        target_train = self.base_network(target_train)
         source_clf = self.classifier_layer(source)
+        target_clf = self.classifier_layer(target_train)
         if self.use_bottleneck:
             source = self.bottleneck_layer(source)
             target = self.bottleneck_layer(target)
         transfer_loss = self.adapt_loss(source, target, self.transfer_loss)
-        return source_clf, transfer_loss
+        return torch.cat(((source_clf,target_clf)),dim=0), transfer_loss
 
     def predict(self, x):
         features = self.base_network(x)

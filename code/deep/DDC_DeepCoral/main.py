@@ -6,7 +6,7 @@ import models
 import utils
 import numpy as np
 from return_dataset import return_SSDA
-
+import datetime
 gpu_id = 1
 DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
 
@@ -66,27 +66,33 @@ def test(model, target_test_loader):
 def train(source_loader, target_loader, target_train_loader, target_test_loader, model, optimizer):
     len_source_loader = len(source_loader)
     len_target_loader = len(target_train_loader)
+    len_target = len(target_loader)
+   
     best_acc = 0
     stop = 0
+    suffix = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
     for e in range(args.n_epoch):
         stop += 1
         train_loss_clf = utils.AverageMeter()
         train_loss_transfer = utils.AverageMeter()
         train_loss_total = utils.AverageMeter()
         model.train()
-        iter_source, iter_target = iter(source_loader), iter(target_train_loader)
+        iter_source, iter_target_train, iter_target = iter(source_loader), iter(target_train_loader), iter(target_loader)
         n_batch = min(len_source_loader, len_target_loader)
         criterion = torch.nn.CrossEntropyLoss()
         for _ in range(n_batch):
             data_source, label_source = iter_source.next()
+            data_target_train, label_target = iter_target_train.next()
             data_target, _ = iter_target.next()
+            
             data_source, label_source = data_source.to(
                 DEVICE), label_source.to(DEVICE)
+            data_target_train, label_target = data_target_train.to(
+                DEVICE), label_target.to(DEVICE)
             data_target = data_target.to(DEVICE)
-
             optimizer.zero_grad()
-            label_source_pred, transfer_loss = model(data_source, data_target)
-            clf_loss = criterion(label_source_pred, label_source)
+            label_pred, transfer_loss = model(data_source, data_target, data_target_train)
+            clf_loss = criterion(label_pred, torch.cat(((label_source,label_target)),dim=0))
             loss = clf_loss + args.lamb * transfer_loss
             loss.backward()
             optimizer.step()
@@ -95,11 +101,12 @@ def train(source_loader, target_loader, target_train_loader, target_test_loader,
             train_loss_total.update(loss.item())
         # Test
         acc = test(model, target_test_loader)
-        log.append([train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg])
+        log.append([train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg, acc])
         np_log = np.array(log, dtype=float)
-        np.savetxt('logs/train_log.csv', np_log, delimiter=',', fmt='%.6f',
-                header='Dataset %s Source %s Target %s Labeled num perclass %s Network %s' %
-                (args.dataset, args.src, args.tar, args.num, args.model))
+        
+        np.savetxt('logs/train_log'+suffix+'.csv', np_log, delimiter=',', fmt='%.6f',
+                header='Dataset %s Source %s Target %s Labeled num perclass %s Network %s Lamb %d trans_loss %s' %
+                (args.dataset, args.src, args.tar, args.num, args.model, args.lamb, args.trans_loss))
         print('Epoch: [{:2d}/{}], cls_loss: {:.4f}, transfer_loss: {:.4f}, total_Loss: {:.4f}, acc: {:.4f}'.format(
                     e, args.n_epoch, train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg, acc))
         if best_acc < acc:
