@@ -90,10 +90,14 @@ def return_SSDA(args):
                                     shuffle=True, drop_last=True)
     target_train_loader = \
         torch.utils.data.DataLoader(target_dataset_train,
-                                    batch_size=min(bs,
-                                                   len(target_dataset_train)),
+                                    batch_size=args.num+3,
                                     num_workers=4,
-                                    shuffle=True, drop_last=True)
+                                    shuffle=False, drop_last=False)
+    source_train_loader = \
+        torch.utils.data.DataLoader(source_dataset,
+                                    batch_size=bs,
+                                    num_workers=4,
+                                    shuffle=False, drop_last=False)
     target_test_loader = \
         torch.utils.data.DataLoader(target_dataset_test,
                                     batch_size=bs, num_workers=4,
@@ -157,6 +161,9 @@ def make_dataset_fromlist(image_list):
                 label_list.append(int(label.strip()))
     image_index = np.array(image_index)
     label_list = np.array(label_list)
+    sortidx = np.argsort(label_list)
+    image_index = image_index[sortidx]
+    label_list = label_list[sortidx]
     return image_index, label_list
 
 

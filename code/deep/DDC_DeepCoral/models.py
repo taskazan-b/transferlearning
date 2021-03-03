@@ -5,11 +5,12 @@ import backbone
 import torch
 
 class Transfer_Net(nn.Module):
-    def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
+    def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_squeeze=False, use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
         super(Transfer_Net, self).__init__()
         self.gid = gpu_id
         self.base_network = backbone.network_dict[base_net]()
         self.use_bottleneck = use_bottleneck
+        self.use_squeeze = use_squeeze 
         self.transfer_loss = transfer_loss
         bottleneck_list = [nn.Linear(self.base_network.output_num(
         ), bottleneck_width), nn.BatchNorm1d(bottleneck_width), nn.LeakyReLU(), nn.Dropout(0.5)] #nn.ReLU()
@@ -33,7 +34,14 @@ class Transfer_Net(nn.Module):
         if self.use_bottleneck:
             source = self.bottleneck_layer(source)
             target = self.bottleneck_layer(target)
-        transfer_loss = self.adapt_loss(source, target, self.transfer_loss)
+            target_train = self.bottleneck_layer(target_train)
+        
+        if self.use_squeeze==False:
+            squeeze_loss = 0
+            transfer_loss = self.adapt_loss(source, target, target_train, self.transfer_loss)
+        else:
+            #TODO
+            pass
         return torch.cat(((source_clf,target_clf)),dim=0), transfer_loss
 
     def predict(self, x):
@@ -41,7 +49,7 @@ class Transfer_Net(nn.Module):
         clf = self.classifier_layer(features)
         return clf
 
-    def adapt_loss(self, X, Y, adapt_loss):
+    def adapt_loss(self, X, Y, Z, adapt_loss):
         """Compute adaptation loss, currently we support mmd and coral
 
         Arguments:
@@ -57,6 +65,9 @@ class Transfer_Net(nn.Module):
             loss = mmd_loss(X, Y)
         elif adapt_loss == 'coral':
             loss = CORAL(X, Y, gpu_id=self.gid)
+        elif adapt_loss == 'SoS':
+            sosloss = SoS.SoS_loss()
+            loss = sosloss(X,Y,Z)
         else:
             loss = 0
         return loss
