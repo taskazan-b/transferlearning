@@ -7,7 +7,7 @@ import utils
 import numpy as np
 from return_dataset import return_SSDA
 import datetime
-gpu_id = 3
+gpu_id = 1
 DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
 
 log = []
@@ -63,7 +63,7 @@ def test(model, target_test_loader):
     return acc
 
 
-def train(source_loader, target_loader, target_train_loader, target_test_loader, model, optimizer):
+def train(source_loader, target_loader, target_train_loader, source_train_loader, target_test_loader, model, optimizer):
     len_source_loader = len(source_loader)
     len_target_loader = len(target_loader)
    
@@ -76,7 +76,8 @@ def train(source_loader, target_loader, target_train_loader, target_test_loader,
         train_loss_transfer = utils.AverageMeter()
         train_loss_total = utils.AverageMeter()
         model.train()
-        iter_source, iter_target_train, iter_target = iter(source_loader), iter(target_train_loader), iter(target_loader)
+        iter_source, iter_target_train, iter_source_train, iter_target = \
+        iter(source_loader), iter(target_train_loader), iter(source_train_loader), iter(target_loader)
         
         n_batch = min(len_source_loader, len_target_loader)
         criterion = torch.nn.CrossEntropyLoss()
@@ -91,6 +92,8 @@ def train(source_loader, target_loader, target_train_loader, target_test_loader,
             
             optimizer.zero_grad()
             # TODO: class specific inner loop to caculate transfer loss
+            # data_source_train=data_source_train.view(-1,3,224,224)
+            # label_source = label_source.view(-1)
             label_pred, transfer_loss = model(data_source, data_target, data_target_train)
             clf_loss = criterion(label_pred, torch.cat(((label_source,label_target)),dim=0))
             loss = clf_loss + args.lamb * transfer_loss
@@ -134,7 +137,7 @@ if __name__ == '__main__':
 
     print('Src: %s, Tar: %s' % (args.src, args.tar))
 
-    source_loader, target_loader, target_test_loader, target_train_loader, class_list = return_SSDA(args)
+    source_loader, target_loader, target_test_loader, target_train_loader, source_train_loader, class_list = return_SSDA(args)
 
     model = models.Transfer_Net(
         len(class_list), transfer_loss=args.trans_loss, base_net=args.model, gpu_id = gpu_id).to(DEVICE)
@@ -144,5 +147,5 @@ if __name__ == '__main__':
         {'params': model.classifier_layer.parameters(), 'lr': 10 * args.lr},
     ], lr=args.lr, momentum=args.momentum, weight_decay=args.decay)
 
-    train(source_loader, target_loader, target_train_loader,
+    train(source_loader, target_loader, target_train_loader, source_train_loader,
           target_test_loader, model, optimizer)

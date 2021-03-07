@@ -68,6 +68,9 @@ def return_SSDA(args):
     }
     source_dataset = Imagelists_VISDA([image_set_file_s], root=root,
                                       transform=data_transforms['train'])
+    source_dataset_train = Imagelists_VISDA_TrainSrc([image_set_file_s], root=root,
+                                      transform=data_transforms['train'])
+
     target_dataset = Imagelists_VISDA([image_set_file_t,image_set_file_t_val,image_set_file_unl], root=root,
                                       transform=data_transforms['train'])
     target_dataset_train = Imagelists_VISDA([image_set_file_t,image_set_file_t_val], root=root,
@@ -94,15 +97,15 @@ def return_SSDA(args):
                                     num_workers=4,
                                     shuffle=False, drop_last=False)
     source_train_loader = \
-        torch.utils.data.DataLoader(source_dataset,
-                                    batch_size=bs,
+        torch.utils.data.DataLoader(source_dataset_train,
+                                    batch_size=1,
                                     num_workers=4,
                                     shuffle=False, drop_last=False)
     target_test_loader = \
         torch.utils.data.DataLoader(target_dataset_test,
                                     batch_size=bs, num_workers=4,
                                     shuffle=False, drop_last=False)
-    return source_loader, target_loader, target_test_loader, target_train_loader, class_list
+    return source_loader, target_loader, target_test_loader, target_train_loader, source_train_loader, class_list
 
 
 
@@ -211,3 +214,60 @@ class Imagelists_VISDA(object):
 
     def __len__(self):
         return len(self.imgs)
+
+
+
+class Imagelists_VISDA_TrainSrc(object):
+    def __init__(self, image_list, root="./data/multi/",
+                 transform=None, test=False, bs = 32):
+        imgs, labels = make_dataset_fromlist(image_list)
+        self.imgs = imgs
+        self.labels = labels
+        self.transform = transform
+        self.loader = pil_loader
+        self.root = root
+        self.test = test
+        self.bs = bs
+        batch_indices = [0]
+        l0=labels[0]
+        for i,l in enumerate(labels):
+            if l != l0:
+                batch_indices.append(i)
+                l0 = l
+        batch_indices.append(i)
+        self.batch_indices = batch_indices
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+        Returns:
+            tuple: (image, target) where target is
+            class_index of the target class.
+        """
+        start_idx = self.batch_indices[index]
+        end_idx = min(start_idx+self.bs, self.batch_indices[index+1])
+        target = self.labels[start_idx:end_idx]
+
+        path = os.path.join(self.root, self.imgs[start_idx])
+        img = self.loader(path)
+        if self.transform is not None:
+            img = self.transform(img)
+       
+        
+        
+        for i in range(start_idx+1, end_idx):
+            path = os.path.join(self.root, self.imgs[i])
+            im = self.loader(path)
+            if self.transform is not None:
+                im = self.transform(im)
+            img = np.concatenate((img,im),axis=0)
+            
+        
+        if not self.test:
+            return img, target
+        else:
+            return img, target, self.imgs[index]
+
+    def __len__(self):
+        return len(self.batch_indices) - 1
