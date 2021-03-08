@@ -63,10 +63,13 @@ def test(model, target_test_loader):
     return acc
 
 
-def train(source_loader, target_loader, target_train_loader, source_train_loader, target_test_loader, model, optimizer):
+def train(source_loader, target_loader, target_train_loader, source_train_loader, target_test_loader, model, optimizer, nclass):
     len_source_loader = len(source_loader)
     len_target_loader = len(target_loader)
-   
+    
+    if len(target_train_loader)!=len(source_train_loader) or len(source_train_loader)!=nclass:
+        raise ValueError("Check class specific data loaders")
+
     best_acc = 0
     stop = 0
     suffix = datetime.datetime.now().strftime("%y%m%d_%H%M%S")
@@ -76,27 +79,35 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
         train_loss_transfer = utils.AverageMeter()
         train_loss_total = utils.AverageMeter()
         model.train()
-        iter_source, iter_target_train, iter_source_train, iter_target = \
-        iter(source_loader), iter(target_train_loader), iter(source_train_loader), iter(target_loader)
+        iter_source, iter_target = iter(source_loader), iter(target_loader)
         
         n_batch = min(len_source_loader, len_target_loader)
         criterion = torch.nn.CrossEntropyLoss()
         for _ in range(n_batch):
             data_source, label_source = iter_source.next()
-            data_target_train, label_target = iter_target_train.next()
             data_target, _ = iter_target.next()
             
             data_source, label_source = data_source.to(DEVICE), label_source.to(DEVICE)
-            data_target_train, label_target = data_target_train.to(DEVICE), label_target.to(DEVICE)
             data_target = data_target.to(DEVICE)
             
+            iter_target_train, iter_source_train = iter(target_train_loader), iter(source_train_loader)
+
             optimizer.zero_grad()
-            # TODO: class specific inner loop to caculate transfer loss
-            # data_source_train=data_source_train.view(-1,3,224,224)
-            # label_source = label_source.view(-1)
+            for cl in range(nclass):
+                # TODO: class specific inner loop to caculate transfer loss
+                data_target_train, label_target_tr = iter_target_train.next()
+                data_target_train, label_target_tr = data_target_train.to(DEVICE), label_target_tr.to(DEVICE)
+                data_source_train, label_source_tr = iter_source_train.next()
+                data_source_train, label_source_tr = data_source_train.to(DEVICE), label_source_tr.to(DEVICE)
+                
+                data_source_train = data_source_train.view(-1,data_target_train.shape[1],data_target_train.shape[2],data_target_train.shape[3])
+                label_source_tr = label_source_tr.view(-1)
+
             label_pred, transfer_loss = model(data_source, data_target, data_target_train)
             clf_loss = criterion(label_pred, torch.cat(((label_source,label_target)),dim=0))
             loss = clf_loss + args.lamb * transfer_loss
+
+
             loss.backward()
             optimizer.step()
             train_loss_clf.update(clf_loss.item())
@@ -148,4 +159,4 @@ if __name__ == '__main__':
     ], lr=args.lr, momentum=args.momentum, weight_decay=args.decay)
 
     train(source_loader, target_loader, target_train_loader, source_train_loader,
-          target_test_loader, model, optimizer)
+          target_test_loader, model, optimizer, len(class_list))

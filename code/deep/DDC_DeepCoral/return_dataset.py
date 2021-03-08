@@ -69,7 +69,7 @@ def return_SSDA(args):
     source_dataset = Imagelists_VISDA([image_set_file_s], root=root,
                                       transform=data_transforms['train'])
     source_dataset_train = Imagelists_VISDA_TrainSrc([image_set_file_s], root=root,
-                                      transform=data_transforms['train'])
+                                      transform=data_transforms['train'], bs = args.batchsize)
 
     target_dataset = Imagelists_VISDA([image_set_file_t,image_set_file_t_val,image_set_file_unl], root=root,
                                       transform=data_transforms['train'])
@@ -246,28 +246,28 @@ class Imagelists_VISDA_TrainSrc(object):
             class_index of the target class.
         """
         start_idx = self.batch_indices[index]
-        end_idx = min(start_idx+self.bs, self.batch_indices[index+1])
-        target = self.labels[start_idx:end_idx]
+        end_idx = self.batch_indices[index+1]
+        if self.batch_indices[index+1]-self.batch_indices[index]>self.bs:
+            import random
+            selected = random.sample(range(start_idx,end_idx),self.bs)
+        else:
+            selected = list(range(start_idx,end_idx))
 
-        path = os.path.join(self.root, self.imgs[start_idx])
+        target = self.labels[selected]
+        path = os.path.join(self.root, self.imgs[selected[0]])
         img = self.loader(path)
         if self.transform is not None:
             img = self.transform(img)
        
-        
-        
-        for i in range(start_idx+1, end_idx):
+        for i in selected[1:]:
             path = os.path.join(self.root, self.imgs[i])
             im = self.loader(path)
             if self.transform is not None:
                 im = self.transform(im)
             img = np.concatenate((img,im),axis=0)
-            
-        
-        if not self.test:
-            return img, target
-        else:
-            return img, target, self.imgs[index]
+
+        return img, target
+       
 
     def __len__(self):
         return len(self.batch_indices) - 1
