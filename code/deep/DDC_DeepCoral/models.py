@@ -25,31 +25,39 @@ class Transfer_Net(nn.Module):
             self.classifier_layer[i * 3].weight.data.normal_(0, 0.01)
             self.classifier_layer[i * 3].bias.data.fill_(0.0)
 
-    def forward(self, source, target, target_train):
+    def forward(self, source, target, target_train, source_train, predictsource=False):
         source = self.base_network(source)
         target = self.base_network(target)
         target_train = self.base_network(target_train)
-        source_clf = self.classifier_layer(source)
+        source_train = self.base_network(source_train)
+
         target_clf = self.classifier_layer(target_train)
+        if predictsource:
+            source_clf = self.classifier_layer(source)
+            pred_lbl = torch.cat((source_clf,target_clf),dim=0)
+        else:
+            pred_lbl = target_clf
+
         if self.use_bottleneck:
             source = self.bottleneck_layer(source)
             target = self.bottleneck_layer(target)
             target_train = self.bottleneck_layer(target_train)
+            source_train = self.bottleneck_layer(source_train)
         
         if self.use_squeeze==False:
             squeeze_loss = 0
-            transfer_loss = self.adapt_loss(source, target, target_train, self.transfer_loss)
+            transfer_loss = self.adapt_loss(source, target, target_train, source_train, self.transfer_loss)
         else:
             #TODO
             pass
-        return torch.cat(((source_clf,target_clf)),dim=0), transfer_loss
+        return pred_lbl, transfer_loss, squeeze_loss
 
     def predict(self, x):
         features = self.base_network(x)
         clf = self.classifier_layer(features)
         return clf
 
-    def adapt_loss(self, X, Y, Z, adapt_loss):
+    def adapt_loss(self, X, Y, X_tr, Y_tr, adapt_loss):
         """Compute adaptation loss, currently we support mmd and coral
 
         Arguments:
@@ -67,7 +75,10 @@ class Transfer_Net(nn.Module):
             loss = CORAL(X, Y, gpu_id=self.gid)
         elif adapt_loss == 'SoS':
             sosloss = SoS.SoS_loss()
-            loss = sosloss(X,Y,Z)
+            loss = sosloss(X, Y, X_tr, Y_tr)
         else:
             loss = 0
         return loss
+
+    def squeeze(self, source_train):
+        pass

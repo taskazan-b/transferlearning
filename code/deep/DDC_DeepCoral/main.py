@@ -78,6 +78,7 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
         train_loss_clf = utils.AverageMeter()
         train_loss_transfer = utils.AverageMeter()
         train_loss_total = utils.AverageMeter()
+        train_loss_sq = utils.AverageMeter()
         model.train()
         iter_source, iter_target = iter(source_loader), iter(target_loader)
         
@@ -91,10 +92,12 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
             data_target = data_target.to(DEVICE)
             
             iter_target_train, iter_source_train = iter(target_train_loader), iter(source_train_loader)
-
             optimizer.zero_grad()
+            
+            label_gt = label_source
+            transfer_loss = 0
+            sq_loss = 0
             for cl in range(nclass):
-                # TODO: class specific inner loop to caculate transfer loss
                 data_target_train, label_target_tr = iter_target_train.next()
                 data_target_train, label_target_tr = data_target_train.to(DEVICE), label_target_tr.to(DEVICE)
                 data_source_train, label_source_tr = iter_source_train.next()
@@ -102,27 +105,36 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
                 
                 data_source_train = data_source_train.view(-1,data_target_train.shape[1],data_target_train.shape[2],data_target_train.shape[3])
                 label_source_tr = label_source_tr.view(-1)
+                if cl==0:
+                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, data_source_train, predictsource=True)
+                    label_pred = pred_lbl
+                else:
+                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, data_source_train)
+                    label_pred = torch.cat((label_pred, pred_lbl),dim=0)
+                label_gt = torch.cat((label_gt,label_target_tr),dim=0)
+                transfer_loss += adapt_loss
+                sq_loss += squeeze_loss
 
-            label_pred, transfer_loss = model(data_source, data_target, data_target_train)
-            clf_loss = criterion(label_pred, torch.cat(((label_source,label_target)),dim=0))
-            loss = clf_loss + args.lamb * transfer_loss
+            clf_loss = criterion(label_pred, label_gt)
+            loss = clf_loss + args.lamb * transfer_loss + sq_loss
 
 
             loss.backward()
             optimizer.step()
             train_loss_clf.update(clf_loss.item())
             train_loss_transfer.update(transfer_loss.item())
+            train_loss_sq.update(sq_loss.item())
             train_loss_total.update(loss.item())
         # Test
         acc = test(model, target_test_loader)
-        log.append([train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg, acc])
+        log.append([train_loss_clf.avg, train_loss_transfer.avg, train_loss_sq.avg, train_loss_total.avg, acc])
         np_log = np.array(log, dtype=float)
         
         np.savetxt('logs/train_log'+suffix+'.csv', np_log, delimiter=',', fmt='%.6f',
                 header='Dataset %s Source %s Target %s Labeled num perclass %s Network %s Lamb %d trans_loss %s' %
                 (args.dataset, args.src, args.tar, args.num, args.model, args.lamb, args.trans_loss))
-        print('Epoch: [{:2d}/{}], cls_loss: {:.4f}, transfer_loss: {:.4f}, total_Loss: {:.4f}, acc: {:.4f}'.format(
-                    e, args.n_epoch, train_loss_clf.avg, train_loss_transfer.avg, train_loss_total.avg, acc))
+        print('Epoch: [{:2d}/{}], cls_loss: {:.4f}, transfer_loss: {:.4f}, squeeze_loss: {:.4f}, total_Loss: {:.4f}, acc: {:.4f}'.format(
+                    e, args.n_epoch, train_loss_clf.avg, train_loss_transfer.avg, train_loss_sq.avg, train_loss_total.avg, acc))
         if best_acc < acc:
             best_acc = acc
             stop = 0
