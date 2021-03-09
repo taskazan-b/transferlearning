@@ -11,7 +11,7 @@ class Transfer_Net(nn.Module):
         if transfer_loss=='SoS':
             self.Ms = None
             self.Mt = None
-            self.sosloss = SoS.SoS_loss(bottleneck_width) 
+            self.sosloss = SoS.SoS_loss(bottleneck_width, gpu_id=self.gid) 
 
         self.gid = gpu_id
         self.base_network = backbone.network_dict[base_net]()
@@ -31,7 +31,7 @@ class Transfer_Net(nn.Module):
             self.classifier_layer[i * 3].weight.data.normal_(0, 0.01)
             self.classifier_layer[i * 3].bias.data.fill_(0.0)
 
-    def forward(self, source, target, target_train, source_train, predictsource=False):
+    def forward(self, source, target, target_train, source_train, label_source, predictsource=False):
         source = self.base_network(source)
         target = self.base_network(target)
         target_train = self.base_network(target_train)
@@ -58,8 +58,8 @@ class Transfer_Net(nn.Module):
             squeeze_loss = 0
             transfer_loss = self.adapt_loss(source, target, target_train, source_train, self.transfer_loss)
         else:
-            #TODO
-            pass
+            squeeze_loss = self.squeeze(source, source_train, label_source)
+            transfer_loss = self.adapt_loss(source, target, target_train, source_train, self.transfer_loss)
         return pred_lbl, transfer_loss, squeeze_loss
 
     def predict(self, x):
@@ -89,5 +89,6 @@ class Transfer_Net(nn.Module):
             loss = 0
         return loss
 
-    def squeeze(self, source_train):
-        pass
+    def squeeze(self, source, source_train, label_source):
+        loss = self.sosloss.loss_squeeze(source, source_train, label_source)
+        return loss

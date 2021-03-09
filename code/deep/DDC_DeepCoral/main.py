@@ -106,17 +106,18 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
                 data_source_train = data_source_train.view(-1,data_target_train.shape[1],data_target_train.shape[2],data_target_train.shape[3])
                 label_source_tr = label_source_tr.view(-1)
                 if cl==0:
-                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, data_source_train, predictsource=True)
+                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, \
+                     data_source_train, label_source, predictsource=True)
                     label_pred = pred_lbl
                 else:
-                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, data_source_train)
+                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, data_source_train, label_source)
                     label_pred = torch.cat((label_pred, pred_lbl),dim=0)
                 label_gt = torch.cat((label_gt,label_target_tr),dim=0)
                 transfer_loss += adapt_loss
                 sq_loss += squeeze_loss
 
             clf_loss = criterion(label_pred, label_gt)
-            loss = clf_loss + args.lamb * transfer_loss + sq_loss
+            loss = clf_loss + args.lamb * transfer_loss + args.lamb * sq_loss
 
 
             loss.backward()
