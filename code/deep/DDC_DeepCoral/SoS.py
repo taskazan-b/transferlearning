@@ -3,12 +3,22 @@ import torch.nn as nn
 
 
 class SoS_loss(nn.Module):
-    def __init__(self, kernel_type='rbf', kernel_mul=2.0, kernel_num=5):
+    def __init__(self, d, mord=1):
         super(SoS_loss, self).__init__()
-        self.kernel_num = kernel_num
-        self.kernel_mul = kernel_mul
-        self.fix_sigma = None
-        self.kernel_type = kernel_type
+        self.mord = mord
+        import scipy.special as sp
+        s = int(sp.binom(mord+d,mord))
+        self.s = s
+        Ad = torch.zeros((s,s), requires_grad=False)
+        for i in range(s):
+            Ad[i][s-i-1] = 1
+        self.Ad = Ad
+        powers = []
+        for i in range(0,mord+1):
+            powers.append(self.exponent(i,d))
+        self.powers = powers
+
+    def exponent(self, i, d):
 
     def calcQ(self):
         pass
@@ -16,11 +26,11 @@ class SoS_loss(nn.Module):
     def vmap(self):
         pass
 
-    def mom(self):
+    def mom(self, X):
         pass
 
   
-    def forward(self, source, target):
+    def forward(self, Ms, Mt, source_tr, target_tr):
         if self.kernel_type == 'linear':
             return self.linear_mmd2(source, target)
         elif self.kernel_type == 'rbf':

@@ -3,10 +3,16 @@ from Coral import CORAL
 import mmd
 import backbone
 import torch
+import SoS
 
 class Transfer_Net(nn.Module):
     def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_squeeze=False, use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
         super(Transfer_Net, self).__init__()
+        if transfer_loss=='SoS':
+            self.Ms = None
+            self.Mt = None
+            self.sosloss = SoS.SoS_loss(bottleneck_width) 
+
         self.gid = gpu_id
         self.base_network = backbone.network_dict[base_net]()
         self.use_bottleneck = use_bottleneck
@@ -43,7 +49,11 @@ class Transfer_Net(nn.Module):
             target = self.bottleneck_layer(target)
             target_train = self.bottleneck_layer(target_train)
             source_train = self.bottleneck_layer(source_train)
-        
+
+        if self.transfer_loss='SoS' and predictsource==True:
+            self.Ms = self.sosloss.mom(source)
+            self.Mt = self.sosloss.mom(target)
+
         if self.use_squeeze==False:
             squeeze_loss = 0
             transfer_loss = self.adapt_loss(source, target, target_train, source_train, self.transfer_loss)
@@ -74,8 +84,7 @@ class Transfer_Net(nn.Module):
         elif adapt_loss == 'coral':
             loss = CORAL(X, Y, gpu_id=self.gid)
         elif adapt_loss == 'SoS':
-            sosloss = SoS.SoS_loss()
-            loss = sosloss(X, Y, X_tr, Y_tr)
+            loss = self.sosloss(self.Ms, self.Mt, X_tr, Y_tr)
         else:
             loss = 0
         return loss
