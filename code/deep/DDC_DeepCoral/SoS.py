@@ -79,8 +79,8 @@ class SoS_loss(nn.Module):
  
     def forward(self, Ms, Mt, source, source_tr, target_tr, label_source, use_squeeze = True):
         def _matrix_pow(m, p):
-            evals, evecs = torch.eig (m, eigenvectors = True)  # get eigendecomposition
-            evals = evals[:, 0]                                # get real part of (real) eigenvalues
+            evals, evecs = torch.symeig (m, eigenvectors = True)  # get eigendecomposition
+            # evals = evals[:, 0]                                # get real part of (real) eigenvalues
 
             # rebuild original matrix
             # mchk = torch.matmul (evecs, torch.matmul (torch.diag (evals), torch.inverse (evecs)))
@@ -93,7 +93,7 @@ class SoS_loss(nn.Module):
         Vsr = self.vmap(source_tr)
         rho = self.rho_val(Vsr)
         
-        G = Vsr @ torch.inverse(rho * torch.eye(V.shape[1], device = self.gpu, requires_grad=False) + \
+        G = Vsr @ torch.inverse(rho * torch.eye(Vsr.shape[1], device = self.gpu, requires_grad=False) + \
          torch.t(Vsr) @ Vsr) @ torch.t(Vsr)
         H = _matrix_pow(Ms,0.5) @ G @ _matrix_pow(Ms,0.5)
         M = Ms - H
@@ -102,13 +102,11 @@ class SoS_loss(nn.Module):
         z = _matrix_pow(Mt,-0.5) @ Vtr
         Z = z @ torch.t(z)
         
-        evals, evecs = torch.eig (M, eigenvectors = True) 
-        evals = evals[:, 0] 
+        evals, evecs = torch.symeig (M, eigenvectors = True) 
         I = torch.argsort(evals)
         Um = evecs[:][I]
 
-        evals, evecs = torch.eig (Z, eigenvectors = True) 
-        evals = evals[:, 0] 
+        evals, evecs = torch.symeig (Z, eigenvectors = True) 
         I = torch.argsort(evals)
         Uz = evecs[:][I]
 

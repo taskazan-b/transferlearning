@@ -129,7 +129,10 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
             optimizer.step()
             train_loss_clf.update(clf_loss.item())
             train_loss_transfer.update(transfer_loss.item())
-            train_loss_sq.update(sq_loss.item())
+            if not args.squeeze:
+                train_loss_sq.update(torch.tensor(sq_loss,device=DEVICE).item())
+            else:
+                train_loss_sq.update(sq_loss.item())
             train_loss_total.update(loss.item())
         # Test
         acc = test(model, target_test_loader)

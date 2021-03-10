@@ -11,7 +11,7 @@ class Transfer_Net(nn.Module):
         if transfer_loss=='SoS':
             self.Ms = None
             self.Mt = None
-            self.sosloss = SoS.SoS_loss(bottleneck_width, mord = mord, gpu_id=self.gid) 
+            self.sosloss = SoS.SoS_loss(bottleneck_width, mord = mord, gpu_id=gpu_id) 
 
         self.gid = gpu_id
         self.base_network = backbone.network_dict[base_net]()
@@ -50,7 +50,7 @@ class Transfer_Net(nn.Module):
             target_train = self.bottleneck_layer(target_train)
             source_train = self.bottleneck_layer(source_train)
 
-        if self.transfer_loss='SoS' and predictsource==True:
+        if self.transfer_loss=='SoS' and predictsource==True:
             self.Ms = self.sosloss.mom(source)
             self.Mt = self.sosloss.mom(target)
 
