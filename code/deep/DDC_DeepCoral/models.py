@@ -6,12 +6,12 @@ import torch
 import SoS
 
 class Transfer_Net(nn.Module):
-    def __init__(self, num_class, base_net='resnet50', transfer_loss='mmd', use_squeeze=False, use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
+    def __init__(self, num_class, mord, base_net='resnet50', transfer_loss='mmd', use_squeeze=False, use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
         super(Transfer_Net, self).__init__()
         if transfer_loss=='SoS':
             self.Ms = None
             self.Mt = None
-            self.sosloss = SoS.SoS_loss(bottleneck_width, gpu_id=self.gid) 
+            self.sosloss = SoS.SoS_loss(bottleneck_width, mord = mord, gpu_id=self.gid) 
 
         self.gid = gpu_id
         self.base_network = backbone.network_dict[base_net]()
@@ -54,12 +54,12 @@ class Transfer_Net(nn.Module):
             self.Ms = self.sosloss.mom(source)
             self.Mt = self.sosloss.mom(target)
 
-        if self.use_squeeze==False:
+        if self.transfer_loss!='SoS':
             squeeze_loss = 0
-            transfer_loss = self.adapt_loss(source, target, target_train, source_train, self.transfer_loss)
+            transfer_loss = self.adapt_loss(source, target, source_train, target_train, label_source, self.transfer_loss)
         else:
-            squeeze_loss = self.squeeze(source, source_train, label_source)
-            transfer_loss = self.adapt_loss(source, target, target_train, source_train, self.transfer_loss)
+            transfer_loss, squeeze_loss = self.adapt_loss(source, target, source_train, target_train, label_source, self.transfer_loss)
+            
         return pred_lbl, transfer_loss, squeeze_loss
 
     def predict(self, x):
@@ -67,13 +67,13 @@ class Transfer_Net(nn.Module):
         clf = self.classifier_layer(features)
         return clf
 
-    def adapt_loss(self, X, Y, X_tr, Y_tr, adapt_loss):
+    def adapt_loss(self, X, Y, X_tr, Y_tr, label_source, adapt_loss):
         """Compute adaptation loss, currently we support mmd and coral
-
+        
         Arguments:
             X {tensor} -- source matrix
             Y {tensor} -- target matrix
-            adapt_loss {string} -- loss type, 'mmd' or 'coral'. You can add your own loss
+            adapt_loss {string} -- loss type, 'mmd' or 'coral' or 'SoS'
 
         Returns:
             [tensor] -- adaptation loss tensor
@@ -84,11 +84,8 @@ class Transfer_Net(nn.Module):
         elif adapt_loss == 'coral':
             loss = CORAL(X, Y, gpu_id=self.gid)
         elif adapt_loss == 'SoS':
-            loss = self.sosloss(self.Ms, self.Mt, X_tr, Y_tr)
+            trloss, sqloss = self.sosloss(self.Ms, self.Mt, X, X_tr, Y_tr, label_source, use_squeeze = self.use_squeeze)
+            return trloss, sqloss
         else:
             loss = 0
-        return loss
-
-    def squeeze(self, source, source_train, label_source):
-        loss = self.sosloss.loss_squeeze(source, source_train, label_source)
         return loss

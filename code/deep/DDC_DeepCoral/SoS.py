@@ -76,15 +76,51 @@ class SoS_loss(nn.Module):
         Mx = rho * torch.eye(self.s, device = self.gpu, requires_grad=False) + (Vx @ torch.t(Vx)) / Vx.shape[1]
         return Mx
 
-    def loss_squeeze(self, source, source_train, label_source):
-        pass
+ 
+    def forward(self, Ms, Mt, source, source_tr, target_tr, label_source, use_squeeze = True):
+        def _matrix_pow(m, p):
+            evals, evecs = torch.eig (m, eigenvectors = True)  # get eigendecomposition
+            evals = evals[:, 0]                                # get real part of (real) eigenvalues
 
-    def forward(self, Ms, Mt, source_tr, target_tr):
+            # rebuild original matrix
+            # mchk = torch.matmul (evecs, torch.matmul (torch.diag (evals), torch.inverse (evecs)))
+            evpow = evals**(p)                              # raise eigenvalues to fractional power
+
+            # build exponentiated matrix from exponentiated eigenvalues
+            mpow = torch.matmul (evecs, torch.matmul (torch.diag (evpow), torch.inverse (evecs)))
+            return mpow
+
+        Vsr = self.vmap(source_tr)
+        rho = self.rho_val(Vsr)
         
+        G = Vsr @ torch.inverse(rho * torch.eye(V.shape[1], device = self.gpu, requires_grad=False) + \
+         torch.t(Vsr) @ Vsr) @ torch.t(Vsr)
+        H = _matrix_pow(Ms,0.5) @ G @ _matrix_pow(Ms,0.5)
+        M = Ms - H
+        
+        Vtr = self.vmap(target_tr)
+        z = _matrix_pow(Mt,-0.5) @ Vtr
+        Z = z @ torch.t(z)
+        
+        evals, evecs = torch.eig (M, eigenvectors = True) 
+        evals = evals[:, 0] 
+        I = torch.argsort(evals)
+        Um = evecs[:][I]
 
-        XX = torch.mean(kernels[:batch_size, :batch_size])
-        YY = torch.mean(kernels[batch_size:, batch_size:])
-        XY = torch.mean(kernels[:batch_size, batch_size:])
-        YX = torch.mean(kernels[batch_size:, :batch_size])
-        loss = torch.mean(XX + YY - XY - YX)
-        return loss
+        evals, evecs = torch.eig (Z, eigenvectors = True) 
+        evals = evals[:, 0] 
+        I = torch.argsort(evals)
+        Uz = evecs[:][I]
+
+        U_found = Um @ self.Ad @ torch.t(Uz)
+        A = _matrix_pow(Ms,0.5) @ U_found @ _matrix_pow(Mt,-0.5)
+        trloss = torch.sum(self.calcQ( Vsr, torch.t(A @ Vtr), rho))
+
+        if not use_squeeze:
+            sqloss = 0
+        else:
+            inliers = torch.sum(self.calcQ( Vsr, torch.t(Vsr), rho))
+            Vsource = self.vmap(source[label_source[1]!=label_source[0]][:])
+            outliers = torch.sum(self.calcQ( Vsr, torch.t(Vsource), rho))
+            sqloss = inliers - outliers
+        return trloss, sqloss

@@ -7,7 +7,7 @@ import utils
 import numpy as np
 from return_dataset import return_SSDA
 import datetime
-gpu_id = 1
+gpu_id = 2
 DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
 
 log = []
@@ -16,6 +16,8 @@ log = []
 parser = argparse.ArgumentParser(description='DDC_DCORAL')
 parser.add_argument('--model', type=str, default='resnet50')
 parser.add_argument('--batchsize', type=int, default=32)
+parser.add_argument('--bottleneck', type=int, default = 256)
+parser.add_argument('--mord', type=int, default = 1, help='veronese map degree')
 parser.add_argument('--src', type=str, default='webcam')
 parser.add_argument('--tar', type=str, default='amazon')
 parser.add_argument('--lr', type=float, default=1e-3)
@@ -29,10 +31,12 @@ parser.add_argument('--dataset', type=str, default='office',
 # parser.add_argument('--data', type=str, default='/home/begum/SSDA_MME/data/office/')
 parser.add_argument('--early_stop', type=int, default=20)
 parser.add_argument('--lamb', type=float, default=10)
-parser.add_argument('--trans_loss', type=str, default='coral')
+parser.add_argument('--trans_loss', type=str, default='SoS')
+parser.add_argument('--squeeze', type=bool, default=False)
 parser.add_argument('--checkpath', type=str, default='./logs/models')
 parser.add_argument('--num', type=int, default=3,
                     help='number of labeled examples in the target')
+
 args = parser.parse_args()
 
 if not os.path.exists(args.checkpath):
@@ -107,10 +111,11 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
                 label_source_tr = label_source_tr.view(-1)
                 if cl==0:
                     pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, \
-                     data_source_train, label_source, predictsource=True)
+                     data_source_train, (cl,label_source), predictsource=True)
                     label_pred = pred_lbl
                 else:
-                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, data_source_train, label_source)
+                    pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, \
+                    data_source_train, (cl,label_source))
                     label_pred = torch.cat((label_pred, pred_lbl),dim=0)
                 label_gt = torch.cat((label_gt,label_target_tr),dim=0)
                 transfer_loss += adapt_loss
@@ -164,7 +169,8 @@ if __name__ == '__main__':
     source_loader, target_loader, target_test_loader, target_train_loader, source_train_loader, class_list = return_SSDA(args)
 
     model = models.Transfer_Net(
-        len(class_list), transfer_loss=args.trans_loss, base_net=args.model, gpu_id = gpu_id).to(DEVICE)
+        len(class_list), args.mord, transfer_loss=args.trans_loss, base_net=args.model, use_squeeze=args.squeeze, \
+        bottleneck_width=args.bottleneck, gpu_id = gpu_id).to(DEVICE)
     optimizer = torch.optim.SGD([
         {'params': model.base_network.parameters()},
         {'params': model.bottleneck_layer.parameters(), 'lr': 10 * args.lr},
