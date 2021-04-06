@@ -7,15 +7,17 @@ import utils
 import numpy as np
 from return_dataset import return_SSDA
 import datetime
-gpu_id = 2
+gpu_id = 1
 DEVICE = torch.device('cuda:%d'%gpu_id if torch.cuda.is_available() else 'cpu')
+
+torch.autograd.set_detect_anomaly(True)
 
 log = []
 
 # Command setting
 parser = argparse.ArgumentParser(description='DDC_DCORAL')
 parser.add_argument('--model', type=str, default='resnet50')
-parser.add_argument('--batchsize', type=int, default=32)
+parser.add_argument('--batchsize', type=int, default=32) # when used resnet50 I can only go for batchsize 8
 parser.add_argument('--bottleneck', type=int, default = 256)
 parser.add_argument('--mord', type=int, default = 1, help='veronese map degree')
 parser.add_argument('--src', type=str, default='webcam')
@@ -30,7 +32,7 @@ parser.add_argument('--dataset', type=str, default='office',
                     help='the name of dataset')
 # parser.add_argument('--data', type=str, default='/home/begum/SSDA_MME/data/office/')
 parser.add_argument('--early_stop', type=int, default=20)
-parser.add_argument('--lamb', type=float, default=10)
+parser.add_argument('--lamb', type=float, default=1e-3)
 parser.add_argument('--trans_loss', type=str, default='SoS')
 parser.add_argument('--squeeze', type=bool, default=False)
 parser.add_argument('--checkpath', type=str, default='./logs/models')
@@ -87,8 +89,10 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
         iter_source, iter_target = iter(source_loader), iter(target_loader)
         
         n_batch = min(len_source_loader, len_target_loader)
+        print(n_batch)
         criterion = torch.nn.CrossEntropyLoss()
-        for _ in range(n_batch):
+        for batchidx in range(n_batch):
+            print("batch_idx:", batchidx)
             data_source, label_source = iter_source.next()
             data_target, _ = iter_target.next()
             
@@ -102,6 +106,7 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
             transfer_loss = 0
             sq_loss = 0
             for cl in range(nclass):
+                print("class_idx:", cl)
                 data_target_train, label_target_tr = iter_target_train.next()
                 data_target_train, label_target_tr = data_target_train.to(DEVICE), label_target_tr.to(DEVICE)
                 data_source_train, label_source_tr = iter_source_train.next()
@@ -109,6 +114,7 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
                 
                 data_source_train = data_source_train.view(-1,data_target_train.shape[1],data_target_train.shape[2],data_target_train.shape[3])
                 label_source_tr = label_source_tr.view(-1)
+                
                 if cl==0:
                     pred_lbl, adapt_loss, squeeze_loss = model(data_source, data_target, data_target_train, \
                      data_source_train, (cl,label_source), predictsource=True)
@@ -120,13 +126,15 @@ def train(source_loader, target_loader, target_train_loader, source_train_loader
                 label_gt = torch.cat((label_gt,label_target_tr),dim=0)
                 transfer_loss += adapt_loss
                 sq_loss += squeeze_loss
-
+                
             clf_loss = criterion(label_pred, label_gt)
             loss = clf_loss + args.lamb * transfer_loss + args.lamb * sq_loss
-
-
+            print(clf_loss , transfer_loss, sq_loss)
+            # print(model.base_network.features[0].weight)
             loss.backward()
             optimizer.step()
+            # print(model.base_network.features[0].weight)
+
             train_loss_clf.update(clf_loss.item())
             train_loss_transfer.update(transfer_loss.item())
             if not args.squeeze:

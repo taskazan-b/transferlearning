@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import scipy.special as sp
 import numpy as np
+from scipy.linalg import fractional_matrix_power
 
 class SoS_loss(nn.Module):
     def __init__(self, d, mord=1, gpu_id=0):
@@ -78,10 +79,10 @@ class SoS_loss(nn.Module):
 
  
     def forward(self, Ms, Mt, source, source_tr, target_tr, label_source, use_squeeze = True):
+        
         def _matrix_pow(m, p):
             evals, evecs = torch.symeig (m, eigenvectors = True)  # get eigendecomposition
             # evals = evals[:, 0]                                # get real part of (real) eigenvalues
-
             # rebuild original matrix
             # mchk = torch.matmul (evecs, torch.matmul (torch.diag (evals), torch.inverse (evecs)))
             evpow = evals**(p)                              # raise eigenvalues to fractional power
@@ -90,28 +91,51 @@ class SoS_loss(nn.Module):
             mpow = torch.matmul (evecs, torch.matmul (torch.diag (evpow), torch.inverse (evecs)))
             return mpow
 
+        def pinv(A):
+            """
+            Return the pseudoinverse of A using the QR decomposition.
+            """
+            Q,R = torch.qr(A)
+            return R.pinverse().mm(Q.t())
+
         Vsr = self.vmap(source_tr)
         rho = self.rho_val(Vsr)
         
-        G = Vsr @ torch.inverse(rho * torch.eye(Vsr.shape[1], device = self.gpu, requires_grad=False) + \
-         torch.t(Vsr) @ Vsr) @ torch.t(Vsr)
-        H = _matrix_pow(Ms,0.5) @ G @ _matrix_pow(Ms,0.5)
-        M = Ms - H
-        
-        Vtr = self.vmap(target_tr)
-        z = _matrix_pow(Mt,-0.5) @ Vtr
-        Z = z @ torch.t(z)
-        
-        evals, evecs = torch.symeig (M, eigenvectors = True) 
-        I = torch.argsort(evals)
-        Um = evecs[:][I]
+        H = Vsr @ torch.t(Vsr)
+        # print("cond number H", np.linalg.cond(H.cpu().detach().numpy()))
+        # H = H + rho*torch.eye(H.shape[0], device = self.gpu, requires_grad=False)
 
+        Mth = torch.tensor( np.real( fractional_matrix_power(Mt.detach().cpu().numpy(), -0.5) ) , requires_grad=True, device=self.gpu).float()
+        Msh = torch.tensor( np.real( fractional_matrix_power(Ms.detach().cpu().numpy(), 0.5) ) , requires_grad=True, device=self.gpu).float()
+        # import pdb; pdb.set_trace()
+        M = Msh @ torch.pinverse( H ) @ Msh
+
+        # G = Vsr @ torch.inverse(rho * torch.eye(Vsr.shape[1], device = self.gpu, requires_grad=False) + \
+        #  torch.t(Vsr) @ Vsr) @ torch.t(Vsr)
+        # Msh = _matrix_pow(Ms,0.5)
+        # Mth = _matrix_pow(Mt,-0.5)
+        # H = Msh @ G @ Msh
+        # M = Ms - H
+        print("cond number M: ", np.linalg.cond(M.cpu().detach().numpy()))
+        print("cond number H", np.linalg.cond(H.cpu().detach().numpy()))
+        # M = M + torch.norm(M) * torch.eye(M.shape[0], device = self.gpu, requires_grad=False)
+        # print(np.linalg.cond(M.cpu().detach().numpy()))
+
+        Vtr = self.vmap(target_tr)
+        z = Mth @ Vtr
+        Z = z @ torch.t(z) 
+        
+       
         evals, evecs = torch.symeig (Z, eigenvectors = True) 
         I = torch.argsort(evals)
         Uz = evecs[:][I]
 
+        evals, evecs = torch.symeig (M, eigenvectors = True) 
+        I = torch.argsort(evals)
+        Um = evecs[:][I]
+
         U_found = Um @ self.Ad @ torch.t(Uz)
-        A = _matrix_pow(Ms,0.5) @ U_found @ _matrix_pow(Mt,-0.5)
+        A = Msh @ U_found @ Mth
         trloss = torch.sum(self.calcQ( Vsr, torch.t(A @ Vtr), rho))
 
         if not use_squeeze:

@@ -4,6 +4,7 @@ import mmd
 import backbone
 import torch
 import SoS
+import torch.nn.functional as f
 
 class Transfer_Net(nn.Module):
     def __init__(self, num_class, mord, base_net='resnet50', transfer_loss='mmd', use_squeeze=False, use_bottleneck=True, bottleneck_width=256, width=1024, gpu_id = 0):
@@ -21,7 +22,7 @@ class Transfer_Net(nn.Module):
         bottleneck_list = [nn.Linear(self.base_network.output_num(
         ), bottleneck_width), nn.BatchNorm1d(bottleneck_width), nn.LeakyReLU(), nn.Dropout(0.5)] #nn.ReLU()
         self.bottleneck_layer = nn.Sequential(*bottleneck_list)
-        classifier_layer_list = [nn.Linear(self.base_network.output_num(), width), nn.ReLU(), nn.Dropout(0.5),
+        classifier_layer_list = [nn.Linear(self.base_network.output_num(), width), nn.LeakyReLU(), nn.Dropout(0.5),
                                  nn.Linear(width, num_class)]
         self.classifier_layer = nn.Sequential(*classifier_layer_list)
 
@@ -32,7 +33,7 @@ class Transfer_Net(nn.Module):
             self.classifier_layer[i * 3].bias.data.fill_(0.0)
 
     def forward(self, source, target, target_train, source_train, label_source, predictsource=False):
-        source = self.base_network(source)
+        source = self.base_network(source) 
         target = self.base_network(target)
         target_train = self.base_network(target_train)
         source_train = self.base_network(source_train)
@@ -50,10 +51,18 @@ class Transfer_Net(nn.Module):
             target_train = self.bottleneck_layer(target_train)
             source_train = self.bottleneck_layer(source_train)
 
+        source = f.normalize(source, p=2)
+        target = f.normalize(target, p=2) 
+        target_train = f.normalize(target_train, p=2)
+        source_train = f.normalize(source_train, p=2)
+
         if self.transfer_loss=='SoS' and predictsource==True:
             self.Ms = self.sosloss.mom(source)
             self.Mt = self.sosloss.mom(target)
-
+        # print(source)
+        # print(source.shape)
+        # print(self.Ms)
+        # print(self.Ms.shape)
         if self.transfer_loss!='SoS':
             squeeze_loss = 0
             transfer_loss = self.adapt_loss(source, target, source_train, target_train, label_source, self.transfer_loss)
